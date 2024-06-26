@@ -5,7 +5,10 @@ import lombok.AllArgsConstructor;
 import org.sb.batch.poc.app.model.Customer;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
+import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
+import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.item.data.MongoItemWriter;
@@ -65,6 +68,12 @@ public class SpringBatchConfig {
         return mongoItemWriter;
     }
 
+    private TaskExecutor taskExecutor() {
+        SimpleAsyncTaskExecutor asyncTaskExecutor = new SimpleAsyncTaskExecutor();
+        asyncTaskExecutor.setConcurrencyLimit(10);//TBD to test
+        return asyncTaskExecutor;
+    }
+
     @Bean
     public Step step(JobRepository repository, PlatformTransactionManager transactionManager){
         return new StepBuilder("csv-step",repository)
@@ -76,11 +85,6 @@ public class SpringBatchConfig {
                 .build();
     }
 
-    private TaskExecutor taskExecutor() {
-        SimpleAsyncTaskExecutor asyncTaskExecutor = new SimpleAsyncTaskExecutor();
-        asyncTaskExecutor.setConcurrencyLimit(10);//TBD to test
-        return asyncTaskExecutor;
-    }
 
     @Bean(name="csvJob")
     public Job job(JobRepository jobRepository, PlatformTransactionManager transactionManager){
@@ -89,5 +93,37 @@ public class SpringBatchConfig {
     }
 
 
+
+
+    ///////////////SFTP Integration//////////
+    @Bean
+    public Job sftpJob(JobBuilderFactory jobBuilderFactory, StepBuilderFactory stepBuilderFactory) {
+        return jobBuilderFactory.get("sftpJob")
+                .incrementer(new RunIdIncrementer())
+                .start(sftpStep(stepBuilderFactory))
+                .build();
+    }
+
+    @Bean
+    public Step sftpStep(StepBuilderFactory stepBuilderFactory) {
+        return stepBuilderFactory.get("sftpStep")
+                .<String, String>chunk(10)
+                .reader(fileItemReader())
+                .writer(list -> list.forEach(System.out::println))
+                .build();
+    }
+
+    @Bean
+    public FlatFileItemReader<String> fileItemReader() {
+        FlatFileItemReader<String> reader = new FlatFileItemReader<>();
+        reader.setResource(new FileSystemResource("local/directory"));
+        reader.setLineMapper(new DefaultLineMapper<String>() {{
+            setLineTokenizer(new DelimitedLineTokenizer() {{
+                setNames("data");
+            }});
+            setFieldSetMapper(fieldSet -> fieldSet.readString(0));
+        }});
+        return reader;
+    }
 
 }
